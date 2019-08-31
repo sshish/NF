@@ -1,0 +1,259 @@
+########################################################################
+#Basic interface of blockwise autoregressive monotonic transformations.#
+########################################################################
+
+import torch
+import NF
+
+class Basic(torch.nn.Module):
+  """Abstract module for a blockwise autoregressive monotonic transformation. It
+    is characterized by Jacobians of blockwise lower triangular form, whereby
+    blocks result from channels being split im multiple features:
+
+    +++ 0 0000
+    +++ 0 0000
+
+    ... + 0000
+    ... + 0000
+    ... + 0000
+
+    ... . ++++
+
+    This is an example of such a Jacobian, with input (and output) having 3
+    channels. The 1st input channel has 3 features, the 2nd has 1 feature, the
+    3rd has 4 features. For output, the features are (2,3,1). Diagonal blocks
+    have positive entries (+), upper diagonal blocks are zero (0). BAM interface
+    allows to create neural network implementations of flows like in the paper
+    on "Blockwise Neural Autoregressive Flows".
+  Methods:
+    forward(x): Performs a step in the forward direction (from data x to latent
+      variable y). Input and output values are similar to NF.forward(), except
+      that the CHANNEL dimension is now the FEATURE dimension, and the second
+      entry in the INFO dimension stores the value dy_j_i/dx_j, where the
+      original channel j has been split into features j_1,j_2,...
+    NF(): Wraps itself into a NF, if the number of input features and output
+      features is 1 for all channels.
+
+  """
+
+  def __init__(self, *args):
+    super(Basic, self).__init__()
+    assert(isinstance(self._input_features, list))
+    assert(isinstance(self._output_features, list))
+    assert(len(self._input_features) == len(self._output_features))
+
+  def NF(self):
+    return ToNF(self)
+
+class ToNF(NF.Basic):
+  """If the input and output have only 1 feature per channel, BAM can be
+    converted to NF. The inverse() operation is performed via bisection, it
+    is assumed that the true value x lies between -1 and 1 for all entries.
+
+  """
+
+  def __init__(self, net, minimum=None, maximum=None, max_iterations=10, tolerance=1e-3, randomize=False):
+    assert(isinstance(net, Basic))
+    assert(net._input_features == net._output_features)
+    for feature in net._input_features:
+      assert(feature == 1)
+    if minimum is not None:
+      assert(minimum.shape == torch.Size([len(net._input_features)]))
+      self.bisection_minimum = minimum
+    else: self.bisection_minimum = torch.empty(len(net._input_features)).fill_(-1.)
+    if maximum is not None:
+      assert(maximum.shape == torch.Size([len(net._input_features)]))
+      self.bisection_maximum = maximum
+    else: self.bisection_maximum = torch.empty(len(net._input_features)).fill_(1.)
+    self.bisection_tolerance = tolerance
+    self.bisection_max_iterations = max_iterations
+    self.bisection_randomize = randomize
+    super(ToNF, self).__init__()
+    self._net = net
+
+  def forward(self, x):
+    return self._net(x)
+
+  def inverse(self, y):
+    x = (0.5 * (self.bisection_minimum + self.bisection_maximum)).expand_as(y).to(y.device)
+    x = torch.stack((x, torch.empty_like(x)), dim=2)
+#     x = torch.stack((torch.empty_like(y).fill_(0.5 * (self.minstart + self.maxstart)),
+#                      torch.empty_like(y)), dim=2)
+    for i in range(y.shape[1]):
+      unsatisfied = torch.ones_like(y[:,0]).bool()
+      _min = torch.ones_like(y[:,0]) * self.bisection_minimum[i]
+      _max = torch.ones_like(y[:,0]) * self.bisection_maximum[i]
+      iteration = -1
+      while unsatisfied.any() and iteration < self.bisection_max_iterations:
+        iteration += 1
+        _y = self._net(x[unsatisfied])[:,i,0]
+        _min[unsatisfied] = _min[unsatisfied].where(_y > y[unsatisfied,i], x[unsatisfied,i,0])
+        _max[unsatisfied] = _max[unsatisfied].where(_y < y[unsatisfied,i], x[unsatisfied,i,0])
+        x[unsatisfied,i,0] = 0.5 * (_min + _max)[unsatisfied]
+        unsatisfied_ = unsatisfied.byte()
+        unsatisfied_[unsatisfied].where((_y - y[unsatisfied,i]).abs() > self.bisection_tolerance,
+                                    torch.zeros_like(unsatisfied_[unsatisfied]))
+        unsatisfied = unsatisfied_.bool()
+      if(self.bisection_randomize): x[:,i,0] = _min + torch.rand_like(_min) * (_max - _min)
+    return x[:,:,0]
+
+##########################################################################
+#Implementations of different sublayers that comply to the BAM interface.#
+##########################################################################
+
+class Id(torch.nn.Sequential, Basic):
+  """Identity transform.
+
+  """
+
+  def __init__(self, features):
+    self._input_features = features
+    self._output_features = features
+    super(Id, self).__init__()
+
+  def forward(self, x):
+    return x
+
+class Stack(torch.nn.Sequential, Basic):
+  """A BAM that is created by stacking multiple BAMs.
+
+  Args: Individual BAMs must be listed in the order from x-space (data) to
+    y-space (latent variable).
+
+  """
+
+  def __init__(self, *args):
+    for net in args:
+      assert(isinstance(net, Basic))
+    for i in range(len(args) - 1):
+      assert(args[i]._output_features == args[i+1]._input_features)
+    self._input_features = args[0]._input_features
+    self._output_features = args[-1]._output_features
+    super(Stack, self).__init__(*args)
+
+class Cat(Basic):
+  """Applies blockwise concatenation to the outputs of multiple BAMs.
+
+  """
+
+  def __init__(self, *args):
+    for net in args:
+      assert(isinstance(net, Basic))
+    self._input_features = args[0]._input_features
+    for net in args:
+      assert(net._input_features == self._input_features)
+    self._output_features = [sum(x) for x in zip(*[net._output_features for net in args])]
+    super(Cat, self).__init__()
+    for idx, net in enumerate(args):
+      self.add_module(str(idx), net)
+
+  def forward(self, x):
+    splits = [list(net(x).split(net._output_features, dim=1)) for net in self._modules.values()]
+    splits = [torch.cat(split, dim=1) for split in zip(*splits)]
+    return torch.cat(splits, dim=1)
+
+class Sum(Basic):
+  """Applies blockwise summation over the outputs of a BAM.
+
+  """
+
+  def __init__(self, input_features):
+    self._input_features = input_features
+    self._output_features = [1] * len(self._input_features)
+    super(Sum, self).__init__()
+    self._input_features_cum = [0]
+    in_c = 0
+    for i in range(len(input_features)):
+      in_c += self._input_features[i]
+      self._input_features_cum.append(in_c)
+
+  def forward(self, x):
+    result = torch.empty(x.shape[0],len(self._output_features),2, device=x.device, dtype=x.dtype)
+    for i in range(len(self._input_features_cum) - 1):
+      result[:,i,0] = x[:,self._input_features_cum[i]:self._input_features_cum[i+1],0].sum(dim=1)
+      result[:,i,1] = x[:,self._input_features_cum[i]:self._input_features_cum[i+1],1].logsumexp(dim=1)
+    return result
+
+class Tanh(Basic):
+  """Tanh layer with BAM interface.
+
+  """
+
+  def __init__(self, features):
+    self._input_features = features
+    self._output_features = features
+    super(Tanh, self).__init__()
+
+  def forward(self, x):
+    _x = x[:,:,0]
+    delta = - 2. * (_x - torch.empty_like(_x).fill_(2).log() + torch.nn.functional.softplus(- 2. * _x))
+    return torch.stack((_x.tanh(), x[:,:,1] + delta), dim=2)
+
+class Gate(Basic):
+  """Multiples the tensor with a logistic term.
+
+  """
+
+  def __init__(self, features):
+    self._input_features = features
+    self._output_features = features
+    super(Gate, self).__init__()
+    self._gate = torch.nn.Parameter(torch.nn.init.normal_(torch.Tensor(sum(features))))
+
+  def forward(self, x):
+    delta = - (torch.nn.functional.softplus(-1. * self._gate))
+    return torch.stack((x[:,:,0] * self._gate.sigmoid(), x[:,:,1] + delta), dim=2)
+
+class LinearWeightNorm(Basic):
+  """Blockwise masked linear transformation with weight normalization. This is
+    the basic building block from the paper on Block Neural Autoregressive Flows.
+
+  Args:
+    in_features: List of feature sizes per input channel.
+    out_features: List of feature sizes per output channel.
+
+  """
+
+  def __init__(self, in_features, out_features):
+    self._input_features = in_features
+    self._output_features = out_features
+    super(LinearWeightNorm, self).__init__()
+    self._in_features_cum = [0]
+    self._out_features_cum = [0]
+    in_c = 0
+    out_c = 0
+    for i in range(len(in_features)):
+      in_c += in_features[i]
+      out_c += out_features[i]
+      self._in_features_cum.append(in_c)
+      self._out_features_cum.append(out_c)
+    weight = torch.empty(self._out_features_cum[-1], self._in_features_cum[-1])
+    for i in range(len(in_features)):
+      weight[self._out_features_cum[i]:self._out_features_cum[i+1],0:self._in_features_cum[i+1]] =\
+      torch.nn.init.xavier_uniform_(torch.Tensor(out_features[i],self._in_features_cum[i+1]))
+    self._weight_dir = torch.nn.Parameter(weight)
+    self._bias = torch.nn.Parameter(torch.zeros(self._out_features_cum[-1],1))
+    self._weight_amp = torch.nn.Parameter(torch.nn.init.uniform_(torch.Tensor(self._out_features_cum[-1],1), 0.5, 1.5).log())
+    mask_d = torch.zeros(self._out_features_cum[-1], self._in_features_cum[-1]).bool()
+    mask_o = torch.zeros(self._out_features_cum[-1], self._in_features_cum[-1]).bool()
+    for i in range(len(in_features)):
+      mask_d[self._out_features_cum[i]:self._out_features_cum[i+1],self._in_features_cum[i]:self._in_features_cum[i+1]]=1
+      mask_o[self._out_features_cum[i]:self._out_features_cum[i+1],0:self._in_features_cum[i]]=1
+    self.register_buffer("mask_d", mask_d)
+    self.register_buffer("mask_o", mask_o)
+
+  def forward(self, x):
+    w = torch.zeros_like(self._weight_dir).where(~self.mask_d, self._weight_dir.exp())\
+      + torch.zeros_like(self._weight_dir).where(~self.mask_o, self._weight_dir)
+    squarednorm = (w ** 2).sum(dim=1, keepdim=True)
+    w = w / squarednorm.sqrt()
+    w = w * self._weight_amp.exp()
+    _x = x[:,:,0,None]
+    x_ = x[:,:,1,None]
+    _x = (w @ _x) + self._bias
+    logdiag = torch.empty_like(w).where(~self.mask_d, self._weight_dir - 0.5 * squarednorm.log()\
+    + self._weight_amp + x_.transpose(1,2).expand(-1,w.shape[0],-1))
+    logdet = torch.zeros(_x.shape[0],0,1, device=_x.device)
+    for i in range(len(self._input_features)):
+      logdet = torch.cat((logdet, logdiag[:,self._out_features_cum[i]:self._out_features_cum[i+1],self._in_features_cum[i]:self._in_features_cum[i+1]].logsumexp(dim=2, keepdim=True)), dim=1)
+    return torch.cat((_x, logdet), dim=2)
