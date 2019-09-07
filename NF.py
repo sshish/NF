@@ -43,10 +43,17 @@ class ToGenerator(torch.nn.Module):
     sample(n): Creates n samples.
     log_p(x): Calculates the model probability for a sample x.
     crossentropy_loss(x): Returns a loss tensor suitable for training the model,
-      based on the monte-carlo estimate of the crossentropy between data
+      based on the Monte Carlo estimate of the crossentropy between data
       generating distribution and model distribution. Minimizing this is
       equivalent to minimizing the KL-divergence between aggregate posterior and
       prior distribution of the latent variable.
+    entropy_loss(n): Returns a loss tensor that corresponds to a Monte Carlo
+      estimate of the model distribution entropy plus a constant term. Adding
+      this term with a small negative factor to the loss function regularizes
+      the network to have higher entropy in its output. n is the number of
+      samples for the Monte Carlo estimate.
+    entropy(n) Returns Monte Carlo estimate of model distribution entropy.
+      n is number of samples.
 
   """
 
@@ -60,7 +67,7 @@ class ToGenerator(torch.nn.Module):
   def sample(self, n):
     y = self._prior.sample(torch.Size([n]))
     y = self._net.inverse(y)
-    return y
+    return y.detach()
 
   def log_p(self, x):
     x = torch.stack((x, torch.zeros_like(x)), dim=2)
@@ -70,7 +77,17 @@ class ToGenerator(torch.nn.Module):
     return log_p1 + log_p2
 
   def crossentropy_loss(self, x):
-    return -1. * (self.log_p(x)).mean()
+    return -1. * self.log_p(x).mean()
+
+  def entropy(self, n):
+    x = self.sample(n)
+    return self.crossentropy_loss(x).detach()
+
+  def entropy_loss(self, n):
+    x = self.sample(n)
+    log_p = self.log_p(x)
+    A = log_p.detach()
+    return -1. * ((A + self.entropy(n)) * log_p).mean()
 
 ######################################################################
 #Implementations of different layers that comply to the NF interface.#
