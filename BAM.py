@@ -43,9 +43,12 @@ class Basic(torch.nn.Module):
     assert(len(self._input_features) == len(self._output_features))
 
   def NF(self):
-    return ToNF(self)
+    return FromBAM(self)
 
-class ToNF(NF.Basic):
+  def _get_name(self):
+    return 'BAM:' + self.__class__.__name__ + ' {} -> {}'.format(self._input_features, self._output_features)
+
+class FromBAM(NF.Basic):
   """If the input and output have only 1 feature per channel, BAM can be
     converted to NF. The inverse() operation is performed via bisection, it
     is assumed that the true value x lies between -1 and 1 for all entries.
@@ -68,7 +71,7 @@ class ToNF(NF.Basic):
     self.bisection_tolerance = tolerance
     self.bisection_max_iterations = max_iterations
     self.bisection_randomize = randomize
-    super(ToNF, self).__init__()
+    super(FromBAM, self).__init__()
     self._net = net
 
   def forward(self, x):
