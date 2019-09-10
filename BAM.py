@@ -80,8 +80,6 @@ class FromBAM(NF.Basic):
   def inverse(self, y):
     x = (0.5 * (self.bisection_minimum + self.bisection_maximum)).expand_as(y).to(y.device)
     x = torch.stack((x, torch.empty_like(x)), dim=2)
-#     x = torch.stack((torch.empty_like(y).fill_(0.5 * (self.minstart + self.maxstart)),
-#                      torch.empty_like(y)), dim=2)
     for i in range(y.shape[1]):
       unsatisfied = torch.ones_like(y[:,0]).bool()
       _min = torch.ones_like(y[:,0]) * self.bisection_minimum[i]
