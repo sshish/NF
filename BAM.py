@@ -46,7 +46,7 @@ class Basic(torch.nn.Module):
     return FromBAM(self)
 
   def _get_name(self):
-    return 'BAM:' + self.__class__.__name__ + ' {} -> {}'.format(self._input_features, self._output_features)
+    return 'BAM:' + super(Basic, self)._get_name() + ' {} -> {}'.format(self._input_features, self._output_features)
 
 class FromBAM(NF.Basic):
   """If the input and output have only 1 feature per channel, BAM can be

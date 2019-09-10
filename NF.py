@@ -31,7 +31,7 @@ class Basic(torch.nn.Module):
     raise NotImplementedError
 
   def _get_name(self):
-    return 'NF:' + self.__class__.__name__
+    return 'NF:' + super(Basic, self)._get_name()
 
 class ToGenerator(torch.nn.Module):
   """Generative model created from a NF and a distribution over the latent
