@@ -15,6 +15,10 @@ Similar to the `NF` module, the `BAM` module can easily be extended by custom tr
 A BAM transformation can be converted to a NF transformation.
 `B-NAF_test.py` provides an example of how the `BAM` module can be used to create a custom normalizing flow.
 
+Python notebooks sometimes do not render on github. In this case, you can use nbviewer:
+- <https://nbviewer.jupyter.org/github/sshish/NF/blob/master/RealNVP_test.ipynb>
+- <https://nbviewer.jupyter.org/github/sshish/NF/blob/master/B-NAF_test.ipynb>
+
 This repo was inspired by
 - <https://github.com/senya-ashukha/real-nvp-pytorch>, which is a PyTorch implementation of RealNVP
 - <https://github.com/nicola-decao/BNAF>, which is the authors' original implementation of B-NAF
