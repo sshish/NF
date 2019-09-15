@@ -91,7 +91,8 @@ class FromBAM(NF.Basic):
         _min[unsatisfied] = _min[unsatisfied].where(_y > y[unsatisfied,i], x[unsatisfied,i,0])
         _max[unsatisfied] = _max[unsatisfied].where(_y < y[unsatisfied,i], x[unsatisfied,i,0])
         x[unsatisfied,i,0] = 0.5 * (_min + _max)[unsatisfied]
-        unsatisfied_ = unsatisfied.byte()#???
+        unsatisfied_ = unsatisfied.byte()
+#We have to use this stupid typecast to byte because where_cuda is not implemented for bool in pytorch 1.2.0 (current version)
         unsatisfied_[unsatisfied].where((_y - y[unsatisfied,i]).abs() > self.bisection_tolerance, torch.zeros_like(unsatisfied_[unsatisfied]))
         unsatisfied = unsatisfied_.bool()
       if(self.bisection_randomize): x[:,i,0] = _min + torch.rand_like(_min) * (_max - _min)
@@ -301,7 +302,7 @@ class CLinear(Basic):
   Args:
     in_features: List of feature sizes per input channel.
     out_features: List of feature sizes per output channel.
-    weight_dir: NN that outputs the context-dependent weight_dir matrix.
+    weight_dir: NN that outputs the context-dependent weight_dir vector.
     weight_amp: NN that outputs the context-dependent weight_amp vector.
     bias: NN that outputs the context-dependent bias vector.
 
@@ -335,17 +336,17 @@ class CLinear(Basic):
     self.register_buffer("mask_o", mask_o)
 
   def forward(self, x, c):
-    weight_dir = self._weight_dir(c)
-    weight_amp = self._weight_amp(c)
-    bias = self._bias(c)
+    weight_dir = self._weight_dir(c).view(-1,self._out_features_cum[-1],self._in_features_cum[-1])
+    weight_amp = self._weight_amp(c)[:,:,None]
+    bias = self._bias(c)[:,:,None]
     w = torch.zeros_like(weight_dir).where(~self.mask_d, weight_dir.exp()) + torch.zeros_like(weight_dir).where(~self.mask_o, weight_dir)
-    squarednorm = (w ** 2).sum(dim=1, keepdim=True)
+    squarednorm = (w ** 2).sum(dim=2, keepdim=True)
     w = w / squarednorm.sqrt()
     w = w * weight_amp.exp()
     _x = x[:,:,0,None]
     x_ = x[:,:,1,None]
     _x = (w @ _x) + bias
-    logdiag = torch.empty_like(w).where(~self.mask_d, weight_dir - 0.5 * squarednorm.log() + weight_amp + x_.transpose(1,2).expand(-1,w.shape[0],-1))
+    logdiag = torch.empty_like(w).where(~self.mask_d, weight_dir - 0.5 * squarednorm.log() + weight_amp + x_.transpose(1,2).expand(-1,w.shape[1],-1))
     logdet = torch.zeros(_x.shape[0],0,1, device=_x.device)
     for i in range(len(self._input_features)):
       logdet = torch.cat((logdet, logdiag[:,self._out_features_cum[i]:self._out_features_cum[i+1],self._in_features_cum[i]:self._in_features_cum[i+1]].logsumexp(dim=2, keepdim=True)), dim=1)

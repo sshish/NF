@@ -229,14 +229,14 @@ class CRotation(Basic):
 
   def forward(self, x, c):
     result = x.clone()
-    angle = self._angle(c)
+    angle = self._angle(c).squeeze()
     result[:,self._channel1,0] = x[:,self._channel1,0] * angle.cos() - x[:,self._channel2,0] * angle.sin()
     result[:,self._channel2,0] = x[:,self._channel1,0] * angle.sin() + x[:,self._channel2,0] * angle.cos()
     return result
 
   def inverse(self, y, c):
     result = y
-    angle = self._angle(c)
+    angle = self._angle(c).squeeze(1)
     result[:,self._channel1] = y[:,self._channel1] * angle.cos() + y[:,self._channel2] * angle.sin()
     result[:,self._channel2] = - y[:,self._channel1] * angle.sin() + y[:,self._channel2] * angle.cos()
     return result
