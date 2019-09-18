@@ -241,6 +241,26 @@ class CRotation(Basic):
     result[:,self._channel2] = - y[:,self._channel1] * angle.sin() + y[:,self._channel2] * angle.cos()
     return result
 
+class Clamp(Basic):
+  """Applicable when inputs are bounded between low and high. Useful for
+    ensuring that inverse transformation is also bounded.
+
+  Args: low, high: vectors describing minimal and maximal x-values.
+
+  """
+
+  def __init__(self, low, high):
+    super(Clamp, self).__init__()
+    self.register_buffer("low", low)
+    self.register_buffer("high", high)
+
+  def forward(self, x, _):
+    return x
+
+  def inverse(self, y, _):
+    return y.where(y > low, low).where(y < high, high)
+
+
 class Tanh(Basic):
   """Tanh layer with NF interface (context-free).
 
@@ -256,6 +276,29 @@ class Tanh(Basic):
 
   def inverse(self, y, _):
     return 0.5 * ((1. + y) / (1. - y)).log()
+
+class Atanh(Basic):
+  """Atanh layer with NF interface (context-free). Useful for ensuring that
+    inverse transformation is bounded.
+
+  Args: low, high: vectors describing minimal and maximal x-values.
+
+  """
+
+  def __init__(self, low, high):
+    super(Tan, self).__init__()
+    inflection = 0.5 * (high + low)
+    steepness = 2 / (high - low)
+    self.register_buffer("inflection", inflection)
+    self.register_buffer("steepness", steepness)
+
+  def forward(self, x, _):
+    _x = x[:,:,0]
+    _x = self.steepness * (_x - self.inflection)
+    return torch.stack((0.5 * ((1. + _x) / (1. - _x)).log(), x[:,:,1] - (1. - _x ** 2).log()), dim=2)
+
+  def inverse(self, y, _):
+    return y.tanh() / self.steepness + self.inflection
 
 class CouplingLayer(Basic):
   """Context-free coupling layer from the RealNVP paper.
