@@ -258,7 +258,7 @@ class Clamp(Basic):
     return x
 
   def inverse(self, y, _):
-    return y.where(y > low, low).where(y < high, high)
+    return y.where(y > self.low, self.low).where(y < self.high, self.high)
 
 
 class Tanh(Basic):
