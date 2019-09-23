@@ -9,7 +9,7 @@ NF transformations can be stacked to create more complex NF transformations.
 A NF transformation can be converted to a generative model that can be trained to model an unknown target distribution and sample from it.
 See `RealNVP_test.ipynb` for an example of how the `NF` module can be used to implement the RealNVP architecture from the paper "Density estimation using Real NVP" (<https://arxiv.org/pdf/1605.08803.pdf>).
 
-The `BAM` module provides a basic interface for blockwise autoregressive monotonic transformations, and defines some of those (most notably the `BAM.LinearWeightNorm`, which is the basic building block for the B-NAF architecture from the paper "Block Neural Autoregressive Flow" (<https://arxiv.org/pdf/1904.04676.pdf>)).
+The `BAM` module provides a basic interface for blockwise autoregressive monotonic transformations, and defines some of those (most notably the `BAM.Linear`, which is the basic building block for the B-NAF architecture from the paper "Block Neural Autoregressive Flow" (<https://arxiv.org/pdf/1904.04676.pdf>)).
 Individual BAM transformations can be stacked/concatenated/summed to create more complex transformations.
 Similar to the `NF` module, the `BAM` module can easily be extended by custom transformations.
 A BAM transformation can be converted to a NF transformation.
