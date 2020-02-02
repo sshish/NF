@@ -27,7 +27,7 @@ Suggestions for improvement are welcome.
 
 ## Requirements
 To use `NF` and `BAM` modules:
-- PyTorch version 1.2.0 or above
+- PyTorch version 1.3.0 or above
 
 To run the `RealNVP_test.ipynb` and `B-NAF_test.py` examples:
 - CUDA support
