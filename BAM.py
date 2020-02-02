@@ -233,10 +233,10 @@ class CGate(Basic):
 
   def __init__(self, features, gate):
     assert(isinstance(gate, torch.nn.Module))
-    self._gate = gate
     self._input_features = features
     self._output_features = features
     super(CGate, self).__init__()
+    self._gate = gate
 
   def forward(self, x, c):
     gate = self._gate(c)

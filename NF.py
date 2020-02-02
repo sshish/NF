@@ -105,14 +105,14 @@ class ToGenerator(torch.nn.Module):
   def _entropy_unsqueezed(self, n, c):
     x = self._sample_unsqueezed(n, c)
     x = x.view(n * c.shape[0],-1)
-    x = -1. * self.log_p(x, c.repeat_interleave(n, dim=0)).view(c.shape[0],n).mean(dim=1)
+    x = -1. * self.log_p(x, c.repeat_interleave(n, dim=0)).view(c.shape[0],n)#.mean(dim=1)
     return x
 
   def entropy(self, n, c=None):
     if c is None:
       squeeze_c = True
       c = torch.empty(1)
-    x = self._entropy_unsqueezed(n, c)
+    x = self._entropy_unsqueezed(n, c).mean(dim=1)
     if squeeze_c:
       x = x.squeeze(dim=0)
     return x.detach()
@@ -120,7 +120,7 @@ class ToGenerator(torch.nn.Module):
   def entropy_loss(self, n, c=None):
     if c is None:
       c = torch.empty(1)
-    b = self._entropy_unsqueezed(n, c).detach()
+    b = self._entropy_unsqueezed(n, c).detach().mean(dim=1, keepdim=True)
     log_p = -1. * self._entropy_unsqueezed(n, c)
     a = log_p.detach()
     return -1. * ((a + b) * log_p).mean()
