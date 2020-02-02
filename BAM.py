@@ -91,10 +91,7 @@ class FromBAM(NF.Basic):
         _min[unsatisfied] = _min[unsatisfied].where(_y > y[unsatisfied,i], x[unsatisfied,i,0])
         _max[unsatisfied] = _max[unsatisfied].where(_y < y[unsatisfied,i], x[unsatisfied,i,0])
         x[unsatisfied,i,0] = 0.5 * (_min + _max)[unsatisfied]
-        unsatisfied_ = unsatisfied.byte()
-#We have to use this stupid typecast to byte because where_cuda is not implemented for bool in pytorch 1.2.0 (current version)
-        unsatisfied_[unsatisfied].where((_y - y[unsatisfied,i]).abs() > self.bisection_tolerance, torch.zeros_like(unsatisfied_[unsatisfied]))
-        unsatisfied = unsatisfied_.bool()
+        unsatisfied[unsatisfied].where((_y - y[unsatisfied,i]).abs() > self.bisection_tolerance, torch.zeros_like(unsatisfied[unsatisfied]))
       if(self.bisection_randomize): x[:,i,0] = _min + torch.rand_like(_min) * (_max - _min)
     return x[:,:,0]
 
